@@ -1,0 +1,91 @@
+Welcome to
+      ____              __
+     / __/__  ___ _____/ /__
+    _\ \/ _ \/ _ `/ __/  '_/
+   /__ / .__/\_,_/_/ /_/\_\   version 1.6.0
+      /_/
+
+Using Python version 2.7.12 (default, Jul  2 2016 17:42:40)
+SparkContext available as sc, HiveContext available as sqlContext.
+>>> import pyspark
+>>> from pyspark.mllib.regression import LabeledPoint
+>>> from pyspark.mllib.classification import LogisticRegressionWithSGD
+>>> from pyspark.mllib.tree import DecisionTree
+>>> from pyspark import SparkContext
+>>> from pyspark.sql import SQLContext
+>>> sqlContext = SQLContext(sc)
+>>> raw_rdd = sc.textFile("/tmp/titanic.csv")
+>>> header = raw_rdd.first()
+>>> data_rdd = raw_rdd.filter(lambda line: line != header)
+>>> data_rdd.takeSample(False, 5, 0)
+[u'"257","1st class","adults","women","yes"', u'"365","2nd class","adults","man","no"', u'"26","1st class","adults","man","yes"', u'"868","3rd class","adults","man","no"', u'"116","1st class","adults","man","no"']
+>>> def row_to_labeled_point(line):
+...     passenger_id, klass, age, sex, survived = [segs.strip('"') for segs in line.split(',')]
+...     klass = int(klass[0]) - 1
+...
+...     if (age not in ['adults', 'child'] or
+...         sex not in ['man', 'women'] or
+...         survived not in ['yes', 'no']):
+...         raise RuntimeError('unknown value')
+...
+...     features = [
+...         klass,
+...         (1 if age == 'adults' else 0),
+...         (1 if sex == 'women' else 0)
+...     ]
+...     return LabeledPoint(1 if survived == 'yes' else 0, features)
+...
+>>> labeled_points_rdd = data_rdd.map(row_to_labeled_point)
+>>> labeled_points_rdd.takeSample(False, 5, 0)
+[LabeledPoint(1.0, [0.0,1.0,1.0]), LabeledPoint(0.0, [1.0,1.0,0.0]), LabeledPoint(1.0, [0.0,1.0,0.0]), LabeledPoint(0.0, [2.0,1.0,0.0]), LabeledPoint(0.0, [0.0,1.0,0.0])]
+>>> training_rdd, test_rdd = labeled_points_rdd.randomSplit([0.7, 0.3], seed = 0)
+>>> training_count = training_rdd.count()
+>>> test_count = test_rdd.count()
+>>> training_count, test_count
+(921, 395)
+>>> model = DecisionTree.trainClassifier(training_rdd, numClasses=2, categoricalFeaturesInfo={0: 3,1: 2,2: 2})
+>>> predictions_rdd = model.predict(test_rdd.map(lambda x: x.features))
+>>> truth_and_predictions_rdd = test_rdd.map(lambda lp: lp.label).zip(predictions_rdd)
+>>> accuracy = truth_and_predictions_rdd.filter(lambda v_p: v_p[0] == v_p[1]).count() / float(test_count)
+>>> print('Accuracy =', accuracy)
+('Accuracy =', 0.7974683544303798)
+>>> print(model.toDebugString())
+DecisionTreeModel classifier of depth 4 with 19 nodes
+  If (feature 2 in {0.0})
+   If (feature 1 in {0.0})
+    If (feature 0 in {0.0,1.0})
+     Predict: 1.0
+    Else (feature 0 not in {0.0,1.0})
+     Predict: 0.0
+   Else (feature 1 not in {0.0})
+    If (feature 0 in {1.0})
+     Predict: 0.0
+    Else (feature 0 not in {1.0})
+     If (feature 0 in {0.0})
+      Predict: 0.0
+     Else (feature 0 not in {0.0})
+      Predict: 0.0
+  Else (feature 2 not in {0.0})
+   If (feature 0 in {2.0})
+    If (feature 1 in {0.0})
+     Predict: 0.0
+    Else (feature 1 not in {0.0})
+     Predict: 0.0
+   Else (feature 0 not in {2.0})
+    If (feature 0 in {1.0})
+     If (feature 1 in {0.0})
+      Predict: 1.0
+     Else (feature 1 not in {0.0})
+      Predict: 1.0
+    Else (feature 0 not in {1.0})
+     Predict: 1.0
+
+>>> model = LogisticRegressionWithSGD.train(training_rdd)
+16/12/12 14:25:22 WARN netlib.BLAS: Failed to load implementation from: com.github.fommil.netlib.NativeSystemBLAS
+16/12/12 14:25:22 WARN netlib.BLAS: Failed to load implementation from: com.github.fommil.netlib.NativeRefBLAS
+>>> predictions_rdd = model.predict(test_rdd.map(lambda x: x.features))
+>>> labels_and_predictions_rdd = test_rdd.map(lambda lp: lp.label).zip(predictions_rdd)
+>>> accuracy = labels_and_predictions_rdd.filter(lambda v_p: v_p[0] == v_p[1]).count() / float(test_count)
+>>> print('Accuracy =', accuracy)
+('Accuracy =', 0.789873417721519)
+>>>
