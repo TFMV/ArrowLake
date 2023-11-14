@@ -10,6 +10,7 @@ from vertexai.language_models import TextGenerationModel
 from fastapi.middleware.cors import CORSMiddleware
 from asgiref.sync import sync_to_async
 from enum import Enum
+import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -82,29 +83,34 @@ def get_model() -> TextGenerationModel:
     return TextGenerationModel.from_pretrained(MODEL_NAME)
 
 # Insight Generation
-async def generate_single_insight(model: TextGenerationModel, interpretation: str, insight_type: InsightType, prompts: dict) -> Optional[Insight]:
+async def generate_single_insight(model: TextGenerationModel, interpretation: str, insight_type: InsightType, prompts: dict) -> List[Insight]:
     """
-    Generate a single insight based on the provided model, interpretation, insight type, and prompts.
+    Generate insights based on the provided model, interpretation, insight type, and prompts.
     """
+    insights = []
     try:
         logger.info(f"Generating insight for: {insight_type}")
-        prompt = prompts.get(insight_type.value)
-        if not prompt:
+        prompts_list = prompts.get(insight_type.value, [])
+        if not prompts_list:
             logger.warning(f"No prompt found for insight type: {insight_type}")
-            return None
+            return insights
 
-        response = await sync_to_async(model.predict)(
-            prompt.format(content=interpretation),
-            temperature=0.35,
-            max_output_tokens=1024,
-            top_k=40,
-            top_p=0.95,
-        )
-        response_text = response.text.strip()
-        return Insight(insight=response_text) if response_text else None
+        for prompt in prompts_list:
+            response = await sync_to_async(model.predict)(
+                prompt.format(content=interpretation),
+                temperature=0.35,
+                max_output_tokens=1024,
+                top_k=40,
+                top_p=0.95,
+            )
+            response_text = response.text.strip()
+            if response_text:
+                insights.append(Insight(insight=response_text))
+
     except Exception as e:
-        logger.error(f"Error while generating insight for {insight_type}: {e}")
-        return None
+        logger.error(f"Error while generating insights for {insight_type}: {e}")
+
+    return insights
 
 async def generate_insights(model: TextGenerationModel, interpretation: str, insight_toggles: InsightToggles) -> Dict[InsightType, List[Insight]]:
     insights = {}
@@ -113,17 +119,15 @@ async def generate_insights(model: TextGenerationModel, interpretation: str, ins
 
     for insight_type in InsightType:
         if getattr(insight_toggles, insight_type.value, False):
-            insight = await generate_single_insight(model, interpretation, insight_type, prompts)
-            if insight:
-                insights.setdefault(insight_type, []).append(insight)
+            insights_for_type = await generate_single_insight(model, interpretation, insight_type, prompts)
+            if insights_for_type:
+                insights[insight_type] = insights_for_type
+
     return insights
 
 # API Endpoints
 @app.post("/interpret", response_model=InterpretationResponse)
 async def interpret(request: InterpretationRequest, model: TextGenerationModel = Depends(get_model)) -> InterpretationResponse:
-    """
-    Generate interpretation and insights from the provided text content.
-    """
     try:
         response = await sync_to_async(model.predict)(
             request.content,
