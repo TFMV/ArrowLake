@@ -13,32 +13,30 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const VectorDimensions = 6 // Update this based on expected vector dimensions
+const VectorDimensions = 6
 
 type Vector struct {
-	vec []float32
-}
-
-func NewVector(vec []float32) Vector {
-	return Vector{vec: vec}
+	Name      string
+	Embedding []float32
 }
 
 func ParseVector(line string) (Vector, error) {
 	parts := strings.Split(line, ",")
-	if len(parts) != VectorDimensions {
-		return Vector{}, fmt.Errorf("unexpected number of dimensions: got %d, want %d", len(parts), VectorDimensions)
+	if len(parts) != VectorDimensions+1 {
+		return Vector{}, fmt.Errorf("unexpected number of dimensions: got %d, want %d", len(parts), VectorDimensions+1)
 	}
 
-	vec := make([]float32, len(parts))
-	for i, part := range parts {
+	name := parts[0]
+	vec := make([]float32, VectorDimensions)
+	for i, part := range parts[1:] {
 		var val float32
-		_, err := fmt.Sscanf(strings.TrimSpace(part), "%f", &val)
+		_, err := fmt.Sscanf(part, "%f", &val)
 		if err != nil {
 			return Vector{}, fmt.Errorf("error parsing vector: %w", err)
 		}
 		vec[i] = val
 	}
-	return NewVector(vec), nil
+	return Vector{Name: name, Embedding: vec}, nil
 }
 
 func readVectorData(filePath string) ([]Vector, error) {
@@ -69,9 +67,9 @@ func readVectorData(filePath string) ([]Vector, error) {
 func vectorToString(v Vector) string {
 	var sb strings.Builder
 	sb.WriteString("{")
-	for i, val := range v.vec {
+	for i, val := range v.Embedding {
 		sb.WriteString(fmt.Sprintf("%.1f", val))
-		if i < len(v.vec)-1 {
+		if i < len(v.Embedding)-1 {
 			sb.WriteString(", ")
 		}
 	}
@@ -82,7 +80,7 @@ func vectorToString(v Vector) string {
 func convertVectorsToPgvectorFormat(vectors []Vector) [][]interface{} {
 	pgvectorData := make([][]interface{}, len(vectors))
 	for i, v := range vectors {
-		pgvectorData[i] = []interface{}{vectorToString(v)}
+		pgvectorData[i] = []interface{}{v.Name, vectorToString(v)}
 	}
 	return pgvectorData
 }
@@ -94,20 +92,32 @@ func processVectorBatch(pool *pgxpool.Pool, vectorChannel <-chan []Vector, wg *s
 		pgvectorData := convertVectorsToPgvectorFormat(batch)
 
 		tableName := pgx.Identifier{"items"}
-		columnNames := []string{"embedding"}
+		columnNames := []string{"name", "embedding"}
 
-		_, err := pool.CopyFrom(context.Background(), tableName, columnNames, pgx.CopyFromRows(pgvectorData))
+		tx, err := pool.Begin(context.Background())
+		if err != nil {
+			log.Printf("Failed to begin transaction: %v\n", err)
+			continue
+		}
+
+		_, err = tx.CopyFrom(context.Background(), tableName, columnNames, pgx.CopyFromRows(pgvectorData))
 		if err != nil {
 			log.Printf("Error inserting vectors into pgvector: %v\n", err)
+			if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil {
+				log.Printf("Failed to rollback transaction: %v\n", rollbackErr)
+			}
 			continue
+		}
+
+		if err := tx.Commit(context.Background()); err != nil {
+			log.Printf("Failed to commit transaction: %v\n", err)
 		}
 	}
 }
 
 func main() {
 	dbURL := "postgresql://postgres:foo@localhost:5432/pagila_c"
-
-	filePath := "/Users/thomasmcgeehan/VDS/veloce/python/vllm/ingest/vectors.txt"
+	filePath := "/Users/thomasmcgeehan/VDS/veloce/go/ingest/vectors.txt"
 
 	vectors, err := readVectorData(filePath)
 	if err != nil {
@@ -123,9 +133,9 @@ func main() {
 	vectorChannel := make(chan []Vector)
 	var wg sync.WaitGroup
 
+	batchSize := 1000
 	go func() {
 		defer close(vectorChannel)
-		batchSize := 1000
 		for i := 0; i < len(vectors); i += batchSize {
 			end := i + batchSize
 			if end > len(vectors) {
