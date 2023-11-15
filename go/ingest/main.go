@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -13,21 +14,28 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const VectorDimensions = 6
+const MaxVectorDimensions = 16000 // Adjusted as per pgvector's limit
 
 type Vector struct {
 	Name      string
 	Embedding []float32
 }
 
+var (
+	dbURL       = flag.String("dburl", "postgresql://postgres:foo@localhost:5432/pagila_c", "Database URL")
+	filePath    = flag.String("file", "/Users/thomasmcgeehan/VDS/veloce/go/ingest/vectors.txt", "Path to vector file")
+	batchSize   = flag.Int("batchsize", 1000, "Batch size for processing")
+	threadCount = flag.Int("threads", 4, "Number of threads for parallel processing")
+)
+
 func ParseVector(line string) (Vector, error) {
 	parts := strings.Split(line, ",")
-	if len(parts) != VectorDimensions+1 {
-		return Vector{}, fmt.Errorf("unexpected number of dimensions: got %d, want %d", len(parts), VectorDimensions+1)
+	if len(parts)-1 > MaxVectorDimensions {
+		return Vector{}, fmt.Errorf("vector exceeds maximum dimensions: got %d, max %d", len(parts)-1, MaxVectorDimensions)
 	}
 
 	name := parts[0]
-	vec := make([]float32, VectorDimensions)
+	vec := make([]float32, len(parts)-1)
 	for i, part := range parts[1:] {
 		var val float32
 		_, err := fmt.Sscanf(part, "%f", &val)
@@ -66,14 +74,14 @@ func readVectorData(filePath string) ([]Vector, error) {
 
 func vectorToString(v Vector) string {
 	var sb strings.Builder
-	sb.WriteString("{")
+	sb.WriteString("[")
 	for i, val := range v.Embedding {
 		sb.WriteString(fmt.Sprintf("%.1f", val))
 		if i < len(v.Embedding)-1 {
 			sb.WriteString(", ")
 		}
 	}
-	sb.WriteString("}")
+	sb.WriteString("]")
 	return sb.String()
 }
 
@@ -116,15 +124,14 @@ func processVectorBatch(pool *pgxpool.Pool, vectorChannel <-chan []Vector, wg *s
 }
 
 func main() {
-	dbURL := "postgresql://postgres:foo@localhost:5432/pagila_c"
-	filePath := "/Users/thomasmcgeehan/VDS/veloce/go/ingest/vectors.txt"
+	flag.Parse()
 
-	vectors, err := readVectorData(filePath)
+	vectors, err := readVectorData(*filePath)
 	if err != nil {
 		log.Fatalf("Error reading vector data: %v\n", err)
 	}
 
-	pool, err := pgxpool.New(context.Background(), dbURL)
+	pool, err := pgxpool.New(context.Background(), *dbURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v\n", err)
 	}
@@ -133,11 +140,10 @@ func main() {
 	vectorChannel := make(chan []Vector)
 	var wg sync.WaitGroup
 
-	batchSize := 1000
 	go func() {
 		defer close(vectorChannel)
-		for i := 0; i < len(vectors); i += batchSize {
-			end := i + batchSize
+		for i := 0; i < len(vectors); i += *batchSize {
+			end := i + *batchSize
 			if end > len(vectors) {
 				end = len(vectors)
 			}
@@ -145,8 +151,7 @@ func main() {
 		}
 	}()
 
-	threadCount := 4
-	for i := 0; i < threadCount; i++ {
+	for i := 0; i < *threadCount; i++ {
 		wg.Add(1)
 		go processVectorBatch(pool, vectorChannel, &wg)
 	}
