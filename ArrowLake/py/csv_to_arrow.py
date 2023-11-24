@@ -31,9 +31,14 @@ import pyarrow.csv as pc
 import pyarrow.feather as feather
 from pyarrow.fs import GcsFileSystem
 
+
 def csv_gz_to_arrow_gcs(csv_gz, bucket_name, file_name):
     try:
-        table = pc.read_csv(csv_gz, read_options=pc.ReadOptions(autogenerate_column_names=True), parse_options=pc.ParseOptions(delimiter=','))
+        table = pc.read_csv(
+            csv_gz,
+            read_options=pc.ReadOptions(autogenerate_column_names=True),
+            parse_options=pc.ParseOptions(delimiter=","),
+        )
         print(f"Read {table.num_rows} rows")
 
         with GcsFileSystem().open_output_stream(f"{bucket_name}/{file_name}") as f:
@@ -42,6 +47,7 @@ def csv_gz_to_arrow_gcs(csv_gz, bucket_name, file_name):
     except Exception as e:
         print(e)
         return "Error"
+
 
 if __name__ == "__main__":
     print("Running locally")
