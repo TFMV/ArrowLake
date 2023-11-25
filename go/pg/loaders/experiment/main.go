@@ -5,280 +5,110 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
-	"net/url"
+	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 
-	"github.com/apache/arrow/go/arrow"
-	"github.com/apache/arrow/go/arrow/array"
-	"github.com/apache/arrow/go/arrow/memory"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/mattn/go-sqlite3"
+	"cloud.google.com/go/storage"
+	_ "github.com/pgx/v5/pgxpool"
 )
 
-type Config struct {
-	Threads        int
-	BatchSize      int
-	Query          string
-	SDBSystem      string
-	SDBName        string
-	SDBUser        string
-	SDBPassword    string
-	TDBSystem      string
-	TTable         string
-	TDBName        string
-	TDBUser        string
-	TDBPassword    string
-	ConnectionType string
-	UnixSocketPath string
-}
+const (
+	projectID     = "your-gcs-project-id"
+	bucket        = "your-gcs-bucket-name"
+	objectPrefix  = "data/"
+	numWorkers    = 8
+	maxConcurrent = numWorkers * 2
+)
 
-func createArrowSchemaAndData(rows *sql.Rows, mem memory.Allocator) (*arrow.Schema, []array.Interface, error) {
-	columnTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	fields := make([]arrow.Field, len(columnTypes))
-	for i, ct := range columnTypes {
-		arrowType, nullable := sqlTypeToArrowType(ct.DatabaseTypeName())
-		fields[i] = arrow.Field{Name: ct.Name(), Type: arrowType, Nullable: nullable}
-	}
-	schema := arrow.NewSchema(fields, nil)
-
-	builders := make([]array.Builder, len(fields))
-	for i, field := range fields {
-		builders[i] = array.NewBuilder(mem, field.Type)
-		defer builders[i].Release()
-	}
-
-	columnVals := make([]interface{}, len(columnTypes))
-	for i := range columnVals {
-		columnVals[i] = new(interface{})
-	}
-
-	for rows.Next() {
-		if err := rows.Scan(columnVals...); err != nil {
-			return nil, nil, err
-		}
-
-		for i, columnVal := range columnVals {
-			if columnVal == nil {
-				builders[i].AppendNull()
-				continue
-			}
-
-			switch val := columnVal.(type) {
-			case int32:
-				b := builders[i].(*array.Int32Builder)
-				b.Append(val)
-			case int64:
-				b := builders[i].(*array.Int64Builder)
-				b.Append(val)
-			case float32:
-				b := builders[i].(*array.Float32Builder)
-				b.Append(val)
-			case float64:
-				b := builders[i].(*array.Float64Builder)
-				b.Append(val)
-			case string:
-				b := builders[i].(*array.StringBuilder)
-				b.Append(val)
-			case bool:
-				b := builders[i].(*array.BooleanBuilder)
-				b.Append(val)
-			default:
-				return nil, nil, fmt.Errorf("unsupported type: %T", val)
-			}
-		}
-	}
-
-	arrays := make([]array.Interface, len(builders))
-	for i, builder := range builders {
-		arrays[i] = builder.NewArray()
-		builder.Release()
-	}
-
-	return schema, arrays, nil
-}
-
-func sqlTypeToArrowType(sqlType string) (arrow.DataType, bool) {
-	switch strings.ToUpper(sqlType) {
-	case "INT":
-		return arrow.PrimitiveTypes.Int32, true
-	case "BIGINT":
-		return arrow.PrimitiveTypes.Int64, true
-	case "FLOAT":
-		return arrow.PrimitiveTypes.Float32, true
-	case "DOUBLE":
-		return arrow.PrimitiveTypes.Float64, true
-	case "VARCHAR", "CHAR", "TEXT":
-		return arrow.BinaryTypes.String, true
-	case "BOOLEAN":
-		return arrow.FixedWidthTypes.Boolean, true
-	case "TIMESTAMP":
-		return &arrow.TimestampType{Unit: arrow.Second}, true
-	default:
-		return nil, false
-	}
+type Data struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 func main() {
-
-	// var config Config
-	var rowsProcessed int64
-	start := time.Now()
-
-	// Command-line flags
-	// flag.IntVar(&config.Threads, "Threads", 4, "The number of concurrent threads")
-	// flag.IntVar(&config.BatchSize, "BatchSize", 10000, "The number of inserts to batch")
-	// [Other flag definitions]
-	// flag.Parse()
-
-	config := Config{
-		Threads:        1,
-		BatchSize:      1000,
-		Query:          "SELECT * FROM your_sqlite_table;",
-		SDBSystem:      "sqlite",
-		SDBName:        "your_sqlite_db.sqlite",
-		SDBUser:        "",
-		SDBPassword:    "",
-		TDBSystem:      "postgres",
-		TTable:         "your_postgres_table",
-		TDBName:        "your_postgres_db",
-		TDBUser:        "postgres",
-		TDBPassword:    "postgres",
-		ConnectionType: "unix",
-		UnixSocketPath: "/cloudsql/your_project_id:your_region:your_instance_id",
-	}
-
-	type Output struct {
-		StartTime     time.Time `json:"start_time"`
-		RowsProcessed int       `json:"rows_processed"`
-		RowsPerSecond float64   `json:"rows_per_second"`
-		TotalTime     float64   `json:"total_time"`
-	}
-
-	sqliteDB, err := sql.Open("sqlite3", "your_sqlite_db.sqlite")
+	// Initialize GCS client
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
 	if err != nil {
-		log.Fatalf("Failed to open SQLite DB: %v", err)
+		panic(err)
 	}
-	defer sqliteDB.Close()
+	defer client.Close()
 
-	query := "SELECT * FROM your_sqlite_table;" // Replace with your query
-	// Execute the query
-	rows, err := sqliteDB.Query(query)
+	// Connect to PostgreSQL
+	connStr := fmt.Sprintf("user=username password=password host=%s port=%d dbname=%s sslmode=disable", "localhost", 5432, "mydb")
+	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		log.Fatalf("Failed to execute query: %v", err)
+		panic(err)
 	}
-	defer rows.Close()
+	defer db.Close()
 
-	// Create Arrow memory allocator
-	allocator := memory.NewGoAllocator()
-
-	// Create Apache Arrow schema and data arrays
-	schema, dataArrays, err := createArrowSchemaAndData(rows, allocator)
-
-	columns := make([]string, len(schema.Fields()))
-
-	var connectionString string
-
-	if config.ConnectionType == "unix" {
-		// Unix domain socket connection
-		dbPassword := url.QueryEscape(config.TDBPassword)
-		connectionString = fmt.Sprintf("postgresql://%s:%s@/cloudsql/%s/%s", config.TDBUser, dbPassword, config.UnixSocketPath, config.TDBName)
-	} else {
-		// TCP/IP connection
-		dbPassword := url.QueryEscape(config.TDBPassword)
-		connectionString = fmt.Sprintf("postgresql://%s:%s@localhost:5432/%s?timezone=UTC", config.TDBUser, dbPassword, config.TDBName)
-	}
-
-	pool, err := pgxpool.New(context.Background(), connectionString)
+	// Prepare statement for inserting data
+	insertStmt, err := db.Prepare("INSERT INTO mytable (id, name) VALUES ($1, $2)")
 	if err != nil {
-		log.Fatal("Failed to connect to Postgres:", err.Error())
+		panic(err)
 	}
-	defer pool.Close()
+	defer insertStmt.Close()
 
-	// Create a channel to hold the batches
-	rowsChannel := make(chan [][]interface{})
-
-	// WaitGroup to wait for all processing goroutines to finish
-	var wg sync.WaitGroup
-
-	// Start multiple goroutines for processing batches
-	for i := 0; i < config.Threads; i++ {
-		wg.Add(1)
-		go processBatch(pool, rowsChannel, &wg, &rowsProcessed, config.TTable, columns)
+	// Start workers
+	workChan := make(chan []byte, maxConcurrent)
+	doneChan := make(chan bool, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go worker(workChan, doneChan, insertStmt)
 	}
 
-	// Split data into batches and send to rowsChannel
-	var batch [][]interface{}
-	for _, array := range dataArrays {
-		// [Convert array.Interface into [][]interface{} and send to rowsChannel]
-		rowsChannel <- batch
-		batch = nil
+	// Iterate over objects in GCS bucket
+	it := client.Bucket(bucket).Objects(ctx, &storage.Query{Prefix: objectPrefix})
+	for {
+		objAttrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		} else if err != nil {
+			panic(err)
+		}
 
-		// Release memory used by this array
-		array.Release()
+		// Read object content
+		reader, err := client.Object(bucket, objAttrs.Name).NewReader(ctx)
+		if err != nil {
+			panic(err)
+		}
+		defer reader.Close()
+
+		// Decode JSON data
+		var data []*Data
+		decoder := json.NewDecoder(reader)
+		if err := decoder.Decode(&data); err != nil {
+			panic(err)
+		}
+
+		// Send data to workers
+		for _, d := range data {
+			workChan <- []byte(fmt.Sprintf("%d,%s\n", d.Id, d.Name))
+		}
 	}
-	if len(batch) > 0 {
-		rowsChannel <- batch
-	}
 
-	// Close channel and wait for all goroutines to finish
-	close(rowsChannel)
-	wg.Wait()
-
-	// Output
-	output := Output{
-		StartTime:     start,
-		RowsProcessed: int(atomic.LoadInt64(&rowsProcessed)),
-		RowsPerSecond: float64(atomic.LoadInt64(&rowsProcessed)) / time.Since(start).Seconds(),
-		TotalTime:     time.Since(start).Seconds(),
-	}
-
-	outputJSON, err := json.Marshal(output)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(string(outputJSON))
-
+	close(workChan)
+	<-doneChan
 }
 
-func processBatch(pool *pgxpool.Pool, rowsChannel <-chan [][]interface{}, wg *sync.WaitGroup, rowsProcessed *int64, tableName string, columnNames []string) {
-	defer wg.Done()
+func worker(workChan chan []byte, doneChan chan bool, insertStmt *sql.Stmt) {
+	for work := range workChan {
+		parts := strings.SplitN(string(work), ",", 2)
+		id, _ := strconv.Atoi(parts[0])
+		name := parts[1]
 
-	var batchWG sync.WaitGroup
+		// Execute INSERT query
+		result, err := insertStmt.Exec(id, name)
+		if err != nil {
+			panic(err)
+		}
 
-	for rows := range rowsChannel {
-		batchWG.Add(1)
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			panic(err)
+		}
 
-		go func(rows [][]interface{}) {
-			defer batchWG.Done()
-
-			copyData := make([][]interface{}, len(rows))
-
-			for i, row := range rows {
-				copyData[i] = make([]interface{}, len(row))
-				for j, val := range row {
-					copyData[i][j] = val
-				}
-			}
-
-			tableIdentifier := pgx.Identifier{tableName}
-
-			// Use pgx.CopyFrom to efficiently insert the batch into the database
-			_, err := pool.CopyFrom(context.Background(), tableIdentifier, columnNames, pgx.CopyFromRows(copyData))
-			if err != nil {
-				log.Fatal(err)
-			}
-			atomic.AddInt64(rowsProcessed, int64(len(rows)))
-		}(rows)
+		fmt.Printf("Inserted %d rows\n", rowsAffected)
 	}
 
-	batchWG.Wait()
+	doneChan <- true
 }
