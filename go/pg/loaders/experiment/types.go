@@ -144,6 +144,7 @@ func Float8Array(floats []float64) *pgtype.Float8Array {
 		Status:     pgtype.Present,
 	}
 }
+
 func UUIDArray(uuids []uuid.UUID) *pgtype.ByteaArray {
 	if uuids == nil {
 		return &pgtype.ByteaArray{Status: pgtype.Null}
