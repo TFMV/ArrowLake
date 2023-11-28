@@ -1,6 +1,6 @@
 # Veloce Data Solutions
 
-![Veloce Data Solutions](veloce-gh.png)
+![Veloce Data Solutions](veloce-gh2.png)
 
 ## Lightspeed Migrations
 
