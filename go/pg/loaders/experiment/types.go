@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgtype"
+	
 )
 
 func ByteaArray(bytesArray [][]byte) *pgtype.ByteaArray {
