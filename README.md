@@ -1,7 +1,11 @@
-# Public Repository for Veloce Data Solutions
+# Veloce Data Solutions
 
-## Lightspeed Migration
-Tooling is currently in incubation.
+![Veloce Data Solutions](veloce-gh.png)
+
+## Lightspeed Migrations
+
+Veloce Tooling is currently in incubation.
 
 ## Author
-TFMV
+
+Thomas F McGeehan V
