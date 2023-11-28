@@ -1,5 +1,3 @@
-# Just Tom
-
 # Set up Firebase Hosting in front of a Cloud Run service, without using the firebase CLI
 # The following commands must be installed:
 # - gcloud
@@ -7,11 +5,14 @@
 # - jq
 
 # Update these variables
-PROJECT_ID="tfmv" # Make sure you have enabled Firebase on this Google Cloud project
-CLOUD_RUN_SERVICE_NAME="foobar"
+PROJECT_ID="enable-fb-hosting" # Make sure you have enabled Firebase on this Google Cloud project
+CLOUD_RUN_SERVICE_NAME="hello"
 CLOUD_RUN_SERVICE_REGION="us-central1"
 
+
 ACCESS_TOKEN=$(gcloud auth print-access-token) #Make sure you are logged into gcloud
+
+# Inspired by https://firebase.google.com/docs/hosting/api-deploy
 
 echo "Creating new Firebase Hosting version:"
 

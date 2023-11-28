@@ -38,13 +38,13 @@ Join our band of merry contributors! Whether you're a bard singing tales of new 
 
 ## :compass: Roadmap
 
-:heavy_check_mark: Initial foray into design and architecture
-:construction: Crafting the trilingual alliance
-:telescope: Enhancing our query quiver
-:people_holding_hands: Rallying the open-source community
-:chart_with_upwards_trend: Sharpening performance for the battles ahead
-:page_facing_up: License
-ArrowLake is bestowed upon the realm under the MIT License. Refer to the LICENSE scroll for more details.
+:heavy_check_mark: Initial foray into design and architecture  
+:construction: Crafting the trilingual alliance  
+:telescope: Enhancing our query quiver  
+:people_holding_hands: Rallying the open-source community  
+:chart_with_upwards_trend: Sharpening performance for the battles ahead  
+:page_facing_up: License  
+ArrowLake is bestowed upon the realm under the MIT License. Refer to the LICENSE   scroll for more details.  
 
 ## :bow_and_arrow: Author
 

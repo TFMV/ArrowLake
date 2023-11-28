@@ -78,3 +78,39 @@ func processRecordBatch(recordBatch arrow.RecordBatch) {
 		data.Release()
 	}
 }
+
+func processColumn(name string, data arrow.Interface) {
+	// Get the column type
+	switch data.DataType().ID() {
+	case arrow.BOOL:
+		processBoolColumn(name, data.(*arrow.BooleanData))
+	case arrow.INT32:
+		processInt32Column(name, data.(*arrow.Int32Data))
+	case arrow.INT64:
+		processInt64Column(name, data.(*arrow.Int64Data))
+	case arrow.FLOAT32:
+		processFloat32Column(name, data.(*arrow.Float32Data))
+	case arrow.FLOAT64:
+		processFloat64Column(name, data.(*arrow.Float64Data))
+	case arrow.STRING:
+		processStringColumn(name, data.(*arrow.StringData))
+	default:
+		log.Fatalf("Unsupported column type: %v", data.DataType().ID())
+	}
+}
+
+func processBoolColumn(name string, data *arrow.BooleanData) {
+	// Get the column values
+	values := data.Values()
+
+	// Process the column values
+	processBoolValues(name, values)
+}
+
+func processInt32Column(name string, data *arrow.Int32Data) {
+	// Get the column values
+	values := data.Values()
+
+	// Process the column values
+	processInt32Values(name, values)
+}
