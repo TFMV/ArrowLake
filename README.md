@@ -4,7 +4,7 @@
 
 ## Lightspeed Migrations
 
-Veloce Tooling is currently in incubation.
+Veloce Tooling is currently in incubation. Please feel free to use any code under development.
 
 ## Author
 
