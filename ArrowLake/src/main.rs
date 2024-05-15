@@ -1,19 +1,24 @@
-use arrowlake::config::Config;
-use arrowlake::data_ingestion::{gcs::load_from_gcs, bigquery::load_from_bigquery, iceberg::load_from_iceberg};
-use arrowlake::query_engine::datafusion::execute_datafusion_query;
-use arrowlake::utils::logging::init_logging;
+use datafusion::prelude::*;
+use datafusion::arrow::util::pretty::print_batches;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::execution::context::SessionContext;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_logging();
-    
-    let config = Config::from_file("config.toml")?;
+async fn main() -> datafusion::error::Result<()> {
+    // Create a DataFusion context
+    let ctx = SessionContext::new();
 
-    load_from_gcs(&config.gcs_bucket).await?;
-    load_from_bigquery(&config.bigquery_dataset).await?;
-    load_from_iceberg(&config.iceberg_table).await?;
+    // Register a Parquet file as a table
+    ctx.register_parquet("example", "/Users/thomasmcgeehan/VDS/veloce/ArrowLake/data/flights.parquet", ParquetReadOptions::default()).await?;
 
-    execute_datafusion_query("SELECT * FROM some_table").await?;
+    // Create a DataFrame
+    let df = ctx.sql("SELECT example.\"DEP_DELAY\", COUNT(*) as CNT FROM example GROUP BY example.\"DEP_DELAY\"").await?;
+
+    // Collect the results into a Vec<RecordBatch>
+    let results: Vec<RecordBatch> = df.collect().await?;
+
+    // Print the results
+    print_batches(&results)?;
 
     Ok(())
 }
