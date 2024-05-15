@@ -114,4 +114,3 @@ func processInt32Column(name string, data *arrow.Int32Data) {
 	// Process the column values
 	processInt32Values(name, values)
 }
-
