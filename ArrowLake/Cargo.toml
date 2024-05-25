@@ -1,8 +1,0 @@
-[dependencies]
-arrow = "11.0"
-datafusion = "10.0"
-biglake = "0.1" # hypothetical, please replace with the actual library when available
-async-std = "1.10"
-log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"

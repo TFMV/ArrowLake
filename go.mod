@@ -1,0 +1,7 @@
+module github.com/TFMV/arrowlake
+
+go 1.22.3
+
+require github.com/apache/arrow/go/arrow v0.0.0-20211112161151-bc219186db40
+
+require golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect

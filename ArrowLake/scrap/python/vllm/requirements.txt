@@ -1,8 +1,0 @@
-fastapi
-uvicorn
-pydantic
-google-cloud-aiplatform
-vertexai
-anyio
-asgiref==3.6.0
-google-cloud-secret-manager
