@@ -1,15 +1,16 @@
 postgres:
-  connection_string: "postgres://postgres:password@localhost:5432/tfmv?sslmode=disable"
+  connection_string: "dbname=tfmv user=postgres password=password host=localhost port=5432"
+
 parquet:
-  file_path: "/Users/thomasmcgeehan/ArrowLake/arrowlake/data/flights.parquet"
+  file_path: "/Users/thomasmcgeehan/ArrowLake/arrowlake/data/nation.parquet"
+
 query:
   parquet_table_name: "parquet_table"
-  postgres_table_name: "flights"
-  join_columns:
-    - "ARR_DELAY"
-    - "AIR_TIME"
+  postgres_table_name: "nations"
+  join_column: "n_nationkey"
   select_columns:
-    - "DEP_DELAY"
-    - "DISTANCE"
-    - "DEP_TIME"
-    - "ARR_TIME"
+    - "n_nationkey"
+  query: |
+    SELECT count(*)
+    FROM parquet_table p
+    JOIN postgres_db.nations pg ON p.n_nationkey = pg.n_nationkey

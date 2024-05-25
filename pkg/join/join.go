@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
-
 	"os"
 
 	_ "github.com/marcboeker/go-duckdb"
@@ -22,8 +20,9 @@ type Config struct {
 	Query struct {
 		ParquetTableName  string   `yaml:"parquet_table_name"`
 		PostgresTableName string   `yaml:"postgres_table_name"`
-		JoinColumns       []string `yaml:"join_columns"`
+		JoinColumn        string   `yaml:"join_column"`
 		SelectColumns     []string `yaml:"select_columns"`
+		Query             string   `yaml:"query"`
 	} `yaml:"query"`
 }
 
@@ -42,7 +41,6 @@ func LoadConfig(configPath string) (*Config, error) {
 	return &config, nil
 }
 
-// JoinParquetWithPostgres joins a Parquet file with a PostgreSQL table.
 func JoinParquetWithPostgres(ctx context.Context, config *Config) error {
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
@@ -57,61 +55,35 @@ func JoinParquetWithPostgres(ctx context.Context, config *Config) error {
 	}
 
 	// Enable DuckDB extensions
-	_, err = db.Exec(`INSTALL postgres_scanner; LOAD postgres_scanner;`)
+	_, err = db.Exec(`INSTALL postgres; LOAD postgres;`)
 	if err != nil {
-		return fmt.Errorf("failed to install and load PostgreSQL scanner extension: %w", err)
+		return fmt.Errorf("failed to install and load PostgreSQL extension: %w", err)
 	}
 
 	// Attach the PostgreSQL database
-	_, err = db.Exec(fmt.Sprintf(`CALL postgres_attach('postgres_db', true, '', true, '', '%s')`, config.Postgres.ConnectionString))
+	attachCmd := fmt.Sprintf(`ATTACH '%s' AS postgres_db (TYPE POSTGRES);`, config.Postgres.ConnectionString)
+	_, err = db.Exec(attachCmd)
 	if err != nil {
 		return fmt.Errorf("failed to attach PostgreSQL database: %w", err)
 	}
 
-	// Construct the join query
-	joinConditions := make([]string, len(config.Query.JoinColumns))
-	for i, col := range config.Query.JoinColumns {
-		joinConditions[i] = fmt.Sprintf("p.%s = pg.%s", col, col)
-	}
-	joinConditionStr := strings.Join(joinConditions, " AND ")
-	selectColumnsStr := strings.Join(config.Query.SelectColumns, ", ")
-
-	query := fmt.Sprintf(`
-		SELECT p.*, %s
-		FROM %s p
-		JOIN postgres_db.%s pg ON %s
-		LIMIT 10;
-	`, selectColumnsStr, config.Query.ParquetTableName, config.Query.PostgresTableName, joinConditionStr)
-
-	// Execute the join query
-	rows, err := db.Query(query)
+	// Execute the query from the config file
+	rows, err := db.Query(config.Query.Query)
 	if err != nil {
 		return fmt.Errorf("failed to execute join query: %w", err)
 	}
 	defer rows.Close()
 
 	// Process the results
-	columns, err := rows.Columns()
-	if err != nil {
-		return fmt.Errorf("failed to get columns: %w", err)
-	}
-
-	values := make([]sql.NullString, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
-	for i := range values {
-		valuePtrs[i] = &values[i]
-	}
-
-	for rows.Next() {
-		err = rows.Scan(valuePtrs...)
+	var count int
+	if rows.Next() {
+		err := rows.Scan(&count)
 		if err != nil {
 			return fmt.Errorf("failed to scan row: %w", err)
 		}
-
-		for i, col := range values {
-			fmt.Printf("%s: %v\n", columns[i], col.String)
-		}
 	}
+
+	fmt.Printf("Count of rows: %d\n", count)
 
 	return nil
 }

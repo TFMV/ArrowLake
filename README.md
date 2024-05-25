@@ -45,6 +45,7 @@ Join our band of merry contributors! Whether you're a bard singing tales of new 
 ## :compass: Roadmap
 
 - [x] Initial foray into design and architecture
+- [x] Support Joining Parquet to Postgres
 - [ ] Integrating Rust and DataFusion
 - [ ] Enhancing federated query capabilities with DuckDB and Doris
 - [ ] Utilizing Apache Doris for real-time analytics
