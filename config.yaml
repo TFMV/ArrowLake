@@ -1,16 +1,24 @@
-postgres:
-  connection_string: "dbname=tfmv user=postgres password=password host=localhost port=5432"
-
-parquet:
-  file_path: "/Users/thomasmcgeehan/ArrowLake/arrowlake/data/nation.parquet"
+sources:
+  - type: parquet
+    table_name: parquet_table
+    file_path: "/path/to/parquet1"
+  - type: parquet
+    table_name: parquet_table_2
+    file_path: "/path/to/parquet2"
+  - type: postgres
+    table_name: postgres_table
+    connection_string: "dbname=tfmv user=postgres password=password host=localhost port=5432"
 
 query:
-  parquet_table_name: "parquet_table"
-  postgres_table_name: "nations"
-  join_column: "n_nationkey"
+  join_columns:
+    - source: parquet_table
+      column: join_col_1
+    - source: postgres_table
+      column: join_col_2
   select_columns:
-    - "n_nationkey"
-  query: |
-    SELECT count(*)
-    FROM parquet_table p
-    JOIN postgres_db.nations pg ON p.n_nationkey = pg.n_nationkey
+    - "col1"
+    - "col2"
+  sql: |
+    SELECT {select_columns}
+    FROM {parquet_table} p
+    JOIN {postgres_table} pg ON p.{join_col_1} = pg.{join_col_2}

@@ -10,16 +10,15 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// Load configuration
-	configPath := "/Users/thomasmcgeehan/ArrowLake/arrowlake/config.yaml"
-	config, err := join.LoadConfig(configPath)
+	// Load the configuration file
+	config, err := join.LoadConfig("/Users/thomasmcgeehan/ArrowLake/arrowlake/config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Join Parquet file with PostgreSQL table
-	err = join.JoinParquetWithPostgres(ctx, config)
+	// Join data sources
+	err = join.JoinDataSources(ctx, config)
 	if err != nil {
-		log.Fatalf("Failed to join Parquet with Postgres: %v", err)
+		log.Fatalf("Failed to join data sources: %v", err)
 	}
 }
