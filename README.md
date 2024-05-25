@@ -44,13 +44,88 @@ Join our band of merry contributors! Whether you're a bard singing tales of new 
 
 ## :compass: Roadmap
 
-- [x] Initial foray into design and architecture
-- [x] Support Joining Parquet to Postgres
-- [ ] Integrating Rust and DataFusion
-- [ ] Enhancing federated query capabilities with DuckDB and Doris
-- [ ] Utilizing Apache Doris for real-time analytics
-- [ ] Rallying the open-source community
-- [ ] Sharpening performance for the battles ahead
+### Initial foray into design and architecture
+
+- **Define Core Vision and Mission:** Establish the overarching goals and objectives for ArrowLake.
+- **High-Level Architecture:** Create diagrams and documentation to outline the initial architecture.
+- **Technology Stack Selection:** Choose the core technologies and tools to be used (e.g., Rust, DuckDB, Apache Arrow, Apache Doris).
+- **Repository and Project Structure:** Set up the initial repository and organize the project structure.
+
+### Support Joining Parquet to Postgres
+
+- **Parquet File Reading:** Implement functionality to read Parquet files using DuckDB.
+- **Postgres Integration:** Establish a connection to a Postgres database.
+- **SQL Join Mechanism:** Develop the capability to perform SQL joins between Parquet data and Postgres tables.
+- **Validation and Testing:** Create unit tests to validate the join results.
+
+### Ingest Parquet to Postgres
+
+- **Table Creation from Parquet Schema:** Generate SQL to create Postgres tables based on Parquet schema.
+- **Batch Data Reading:** Implement functionality to read Parquet data in batches.
+- **Data Insertion Mechanism:** Develop an efficient method to insert Parquet data into Postgres.
+- **Concurrency and Error Handling:** Ensure robust handling of concurrent operations and errors.
+- **Performance Benchmarking:** Conduct benchmarking and optimize for speed and efficiency.
+
+### Enhancing Federated Query Capabilities with DuckDB and Doris
+
+- **Apache Doris Integration:** Integrate Apache Doris with ArrowLake for enhanced querying capabilities.
+- **Query Translation and Optimization:** Implement strategies for translating and optimizing queries across different data sources.
+- **Federated Query Execution:** Develop the capability to execute federated queries spanning multiple data sources (Parquet, Iceberg, Postgres, BigQuery).
+- **Performance Benchmarking:** Benchmark and optimize federated query performance.
+
+### Utilizing Apache Doris for Real-Time Analytics
+
+- **Real-Time Data Ingestion:** Set up Apache Doris to handle real-time data ingestion streams.
+- **Real-Time Query Capabilities:** Implement the ability to perform real-time queries on ingested data.
+- **Performance Optimization:** Optimize the system for low-latency real-time analytics.
+- **Validation and Testing:** Validate real-time capabilities with real-world use cases.
+
+### BigQuery Integration
+
+- **BigQuery Connectivity:** Establish a connection to Google BigQuery.
+- **Data Loading and Querying:** Implement functionality to load data into and query data from BigQuery.
+- **Federated Query Support:** Enable federated queries that include BigQuery as a data source.
+- **Performance Optimization:** Optimize interactions with BigQuery for efficiency and speed.
+
+### Iceberg Table Support
+
+- **Iceberg Integration:** Integrate Apache Iceberg to manage large analytic datasets.
+- **Table Management:** Implement functionality to create, read, update, and delete Iceberg tables.
+- **Data Versioning and Time Travel:** Support Iceberg's data versioning and time travel features.
+- **Federated Query Support:** Enable federated queries that include Iceberg tables.
+
+### Arrow Flight Integration
+
+- **Arrow Flight Connectivity:** Establish connectivity using Apache Arrow Flight for efficient data transfer.
+- **Data Transfer Optimization:** Optimize data transfer between ArrowLake and external systems using Arrow Flight.
+- **Secure Data Transport:** Implement secure data transport mechanisms using Arrow Flight.
+
+### Performance Optimization and Benchmarking
+
+- **Extensive Performance Testing:** Conduct performance tests under various workloads.
+- **Bottleneck Identification:** Identify and optimize critical performance bottlenecks.
+- **Caching Strategies:** Implement caching mechanisms to enhance performance.
+- **Benchmarking Against Standards:** Compare ArrowLake performance against industry standards and competitors.
+
+### Data Transformation and ETL Capabilities
+
+- **ETL Framework:** Develop a framework for Extract, Transform, Load (ETL) operations.
+- **Data Transformation:** Implement data transformation capabilities to clean, enrich, and reshape data.
+- **Automation and Scheduling:** Enable automated and scheduled ETL workflows.
+
+### Advanced Analytics and Machine Learning Integration
+
+- **ML Model Support:** Integrate machine learning models for advanced analytics.
+- **Model Training and Inference:** Implement capabilities for model training and inference using data within ArrowLake.
+- **Analytics Dashboard:** Develop a dashboard to visualize analytics and ML results.
+
+### Community Engagement and Open Source Contributions
+
+- **Documentation and Guides:** Prepare comprehensive documentation and user guides.
+- **Example Projects and Tutorials:** Create example projects and tutorials to showcase ArrowLake capabilities.
+- **Community Engagement:** Engage with the open-source community through forums, social media, and events.
+- **Contributions and Collaboration:** Encourage contributions and collaboration from developers worldwide.
+
 
 ## :page_facing_up: License
 
