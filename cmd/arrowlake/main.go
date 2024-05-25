@@ -1,31 +1,25 @@
 package main
 
 import (
+	"context"
 	"log"
 
-	"arrowlake/pkg/duckdb"
-
-	"github.com/TFMV/arrowlake/pkg/arrow"
+	"github.com/TFMV/arrowlake/pkg/join"
 )
 
 func main() {
-	// Initialize Arrow and DuckDB
-	err := arrow.InitArrow()
+	ctx := context.Background()
+
+	// Load configuration
+	configPath := "/Users/thomasmcgeehan/ArrowLake/arrowlake/config.yaml"
+	config, err := join.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Failed to initialize Arrow: %v", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	err = duckdb.InitDuckDB()
+	// Join Parquet file with PostgreSQL table
+	err = join.JoinParquetWithPostgres(ctx, config)
 	if err != nil {
-		log.Fatalf("Failed to initialize DuckDB: %v", err)
+		log.Fatalf("Failed to join Parquet with Postgres: %v", err)
 	}
-
-	// Example use case: Run a SQL query on Arrow table using DuckDB
-	query := "SELECT * FROM my_arrow_table WHERE value > 10"
-	result, err := duckdb.QueryArrowTable(query)
-	if err != nil {
-		log.Fatalf("Failed to query Arrow table: %v", err)
-	}
-
-	log.Printf("Query Result: %v", result)
 }

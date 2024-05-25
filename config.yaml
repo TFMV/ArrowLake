@@ -1,0 +1,15 @@
+postgres:
+  connection_string: "postgres://postgres:password@localhost:5432/tfmv?sslmode=disable"
+parquet:
+  file_path: "/Users/thomasmcgeehan/ArrowLake/arrowlake/data/flights.parquet"
+query:
+  parquet_table_name: "parquet_table"
+  postgres_table_name: "flights"
+  join_columns:
+    - "ARR_DELAY"
+    - "AIR_TIME"
+  select_columns:
+    - "DEP_DELAY"
+    - "DISTANCE"
+    - "DEP_TIME"
+    - "ARR_TIME"
