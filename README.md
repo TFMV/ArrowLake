@@ -2,7 +2,7 @@
 
 ## The Robin Hood of Data Architecture
 
-![Alt text](ArrowLake/images/arrowlake.png)
+![Alt text](images/arrowlake.png)
 
 Welcome to the Sherwood Forest of Big Data - ArrowLake! Crafted by the merry data outlaws at Veloce Data Solutions, ArrowLake aims to liberate the data landscape from the clutches of overpriced and cumbersome big data platforms. Much like the legendary Robin Hood, ArrowLake is here to provide a powerful, cost-effective solution for all, championing the cause of efficient and accessible data processing.
 
