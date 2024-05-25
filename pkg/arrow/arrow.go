@@ -1,188 +1,136 @@
-import "C"
+package arrow
 
 import (
 	"context"
-	"database/sql/driver"
-	"errors"
+	"database/sql"
 	"fmt"
-	"unsafe"
+	"log"
 
-	"github.com/apache/arrow/go/v14/arrow"
-	"github.com/apache/arrow/go/v14/arrow/array"
-	"github.com/apache/arrow/go/v14/arrow/cdata"
+	"github.com/apache/arrow/go/v17/arrow"
+	"github.com/apache/arrow/go/v17/arrow/array"
+	"github.com/apache/arrow/go/v17/arrow/memory"
+	_ "github.com/marcboeker/go-duckdb"
 )
 
 type Arrow struct {
-	c *conn
+	db *sql.DB
 }
 
-// NewArrowFromConn returns a new Arrow from a DuckDB driver connection.
-func NewArrowFromConn(driverConn driver.Conn) (*Arrow, error) {
-	dbConn, ok := driverConn.(*conn)
-	if !ok {
-		return nil, fmt.Errorf("not a duckdb driver connection")
-	}
-
-	if dbConn.closed {
-		panic("database/sql/driver: misuse of duckdb driver: Arrow after Close")
-	}
-
-	return &Arrow{c: dbConn}, nil
+func NewArrow(db *sql.DB) *Arrow {
+	return &Arrow{db: db}
 }
 
-// QueryContext prepares statements, executes them, returns Apache Arrow array.RecordReader as a result of the last
-// executed statement. Arguments are bound to the last statement.
-func (a *Arrow) QueryContext(ctx context.Context, query string, args ...any) (array.RecordReader, error) {
-	if a.c.closed {
-		panic("database/sql/driver: misuse of duckdb driver: Arrow.Query after Close")
-	}
-
-	stmts, size, err := a.c.extractStmts(query)
+func (a *Arrow) QueryArrow(ctx context.Context, query string, args ...interface{}) (arrow.Record, error) {
+	rows, err := a.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer C.duckdb_destroy_extracted(&stmts)
+	defer rows.Close()
 
-	// execute all statements without args, except the last one
-	for i := C.idx_t(0); i < size-1; i++ {
-		stmt, err := a.c.prepareExtractedStmt(stmts, i)
-		if err != nil {
-			return nil, err
-		}
-		// send nil args to execute statement and ignore result (using ExecContext since we're ignoring the result anyway)
-		_, err = stmt.ExecContext(ctx, nil)
-		stmt.Close()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// prepare and execute last statement with args and return result
-	stmt, err := a.c.prepareExtractedStmt(stmts, size-1)
+	columns, err := rows.ColumnTypes()
 	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-
-	res, err := a.execute(stmt, a.anyArgsToNamedArgs(args))
-	if err != nil {
-		return nil, err
-	}
-	defer C.duckdb_destroy_arrow(res)
-
-	sc, err := a.queryArrowSchema(res)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get columns: %w", err)
 	}
 
-	var recs []arrow.Record
-	defer func() {
-		for _, r := range recs {
-			r.Release()
-		}
-	}()
-
-	rowCount := uint64(C.duckdb_arrow_row_count(*res))
-
-	var retrievedRows uint64
-
-	for retrievedRows < rowCount {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
+	pool := memory.NewGoAllocator()
+	builders := make([]array.Builder, len(columns))
+	for i, col := range columns {
+		switch col.DatabaseTypeName() {
+		case "INTEGER":
+			builders[i] = array.NewInt32Builder(pool)
+		case "DOUBLE":
+			builders[i] = array.NewFloat64Builder(pool)
+		case "VARCHAR":
+			builders[i] = array.NewStringBuilder(pool)
 		default:
+			return nil, fmt.Errorf("unsupported column type: %s", col.DatabaseTypeName())
+		}
+	}
+
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		for i := range values {
+			switch columns[i].DatabaseTypeName() {
+			case "INTEGER":
+				var v sql.NullInt32
+				values[i] = &v
+			case "DOUBLE":
+				var v sql.NullFloat64
+				values[i] = &v
+			case "VARCHAR":
+				var v sql.NullString
+				values[i] = &v
+			default:
+				return nil, fmt.Errorf("unsupported column type: %s", columns[i].DatabaseTypeName())
+			}
 		}
 
-		rec, err := a.queryArrowArray(res, sc)
-		if err != nil {
-			return nil, err
+		if err := rows.Scan(values...); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		recs = append(recs, rec)
-
-		retrievedRows += uint64(rec.NumRows())
+		for i, val := range values {
+			switch v := val.(type) {
+			case *sql.NullInt32:
+				builder := builders[i].(*array.Int32Builder)
+				if v.Valid {
+					builder.Append(v.Int32)
+				} else {
+					builder.AppendNull()
+				}
+			case *sql.NullFloat64:
+				builder := builders[i].(*array.Float64Builder)
+				if v.Valid {
+					builder.Append(v.Float64)
+				} else {
+					builder.AppendNull()
+				}
+			case *sql.NullString:
+				builder := builders[i].(*array.StringBuilder)
+				if v.Valid {
+					builder.Append(v.String)
+				} else {
+					builder.AppendNull()
+				}
+			}
+		}
 	}
 
-	return array.NewRecordReader(sc, recs)
+	fieldTypes := make([]arrow.Field, len(columns))
+	arrs := make([]arrow.Array, len(columns))
+	for i, col := range columns {
+		arr := builders[i].NewArray()
+		defer arr.Release()
+		fieldTypes[i] = arrow.Field{Name: col.Name(), Type: arr.DataType()}
+		arrs[i] = arr
+	}
+
+	schema := arrow.NewSchema(fieldTypes, nil)
+	record := array.NewRecord(schema, arrs, int64(arrs[0].Len()))
+
+	return record, nil
 }
 
-// queryArrowSchema fetches the internal arrow schema from the arrow result.
-func (a *Arrow) queryArrowSchema(res *C.duckdb_arrow) (*arrow.Schema, error) {
-	schema := C.calloc(1, C.sizeof_struct_ArrowSchema)
-	defer func() {
-		cdata.ReleaseCArrowSchema((*cdata.CArrowSchema)(schema))
-		C.free(schema)
-	}()
-
-	if state := C.duckdb_query_arrow_schema(
-		*res,
-		(*C.duckdb_arrow_schema)(unsafe.Pointer(&schema)),
-	); state == C.DuckDBError {
-		return nil, errors.New("duckdb_query_arrow_schema")
-	}
-
-	sc, err := cdata.ImportCArrowSchema((*cdata.CArrowSchema)(schema))
+func main() {
+	// Example usage
+	connStr := "host=localhost port=5432 user=postgres password=password dbname=tfmv sslmode=disable"
+	db, err := sql.Open("duckdb", connStr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: ImportCArrowSchema", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
+	defer db.Close()
 
-	return sc, nil
-}
+	arrowInstance := NewArrow(db)
+	ctx := context.Background()
+	query := "SELECT id, name, value FROM test_table WHERE id = ?"
 
-// queryArrowArray fetches an internal arrow array from the arrow result.
-//
-// This function can be called multiple time to get next chunks,
-// which will free the previous out_array.
-func (a *Arrow) queryArrowArray(res *C.duckdb_arrow, sc *arrow.Schema) (arrow.Record, error) {
-	arr := C.calloc(1, C.sizeof_struct_ArrowArray)
-	defer func() {
-		cdata.ReleaseCArrowArray((*cdata.CArrowArray)(arr))
-		C.free(arr)
-	}()
-
-	if state := C.duckdb_query_arrow_array(
-		*res,
-		(*C.duckdb_arrow_array)(unsafe.Pointer(&arr)),
-	); state == C.DuckDBError {
-		return nil, errors.New("duckdb_query_arrow_array")
-	}
-
-	rec, err := cdata.ImportCRecordBatchWithSchema((*cdata.CArrowArray)(arr), sc)
+	record, err := arrowInstance.QueryArrow(ctx, query, 1)
 	if err != nil {
-		return nil, fmt.Errorf("%w: ImportCRecordBatchWithSchema", err)
+		log.Fatalf("Failed to query Arrow: %v", err)
 	}
+	defer record.Release()
 
-	return rec, nil
-}
-
-func (a *Arrow) execute(s *stmt, args []driver.NamedValue) (*C.duckdb_arrow, error) {
-	if s.closed {
-		panic("database/sql/driver: misuse of duckdb driver: executeArrow after Close")
+	for _, col := range record.Columns() {
+		fmt.Println(col)
 	}
-
-	if err := s.bind(args); err != nil {
-		return nil, err
-	}
-
-	var res C.duckdb_arrow
-	if state := C.duckdb_execute_prepared_arrow(*s.stmt, &res); state == C.DuckDBError {
-		dbErr := C.GoString(C.duckdb_query_arrow_error(res))
-		C.duckdb_destroy_arrow(&res)
-		return nil, fmt.Errorf("duckdb_execute_prepared_arrow: %v", dbErr)
-	}
-
-	return &res, nil
-}
-
-func (a *Arrow) anyArgsToNamedArgs(args []any) []driver.NamedValue {
-	if len(args) == 0 {
-		return nil
-	}
-
-	values := make([]driver.Value, len(args))
-	for i, arg := range args {
-		values[i] = arg
-	}
-
-	return argsToNamedArgs(values)
 }

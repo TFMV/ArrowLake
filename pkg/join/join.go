@@ -4,26 +4,35 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+
 	"os"
 
 	_ "github.com/marcboeker/go-duckdb"
 	"gopkg.in/yaml.v2"
 )
 
+type DataSource struct {
+	Type             string `yaml:"type"`
+	TableName        string `yaml:"table_name"`
+	FilePath         string `yaml:"file_path,omitempty"`
+	ConnectionString string `yaml:"connection_string,omitempty"`
+}
+
+type QueryConfig struct {
+	JoinColumns   []JoinColumn `yaml:"join_columns"`
+	SelectColumns []string     `yaml:"select_columns"`
+	SQL           string       `yaml:"sql"`
+}
+
+type JoinColumn struct {
+	Source string `yaml:"source"`
+	Column string `yaml:"column"`
+}
+
 type Config struct {
-	Postgres struct {
-		ConnectionString string `yaml:"connection_string"`
-	} `yaml:"postgres"`
-	Parquet struct {
-		FilePath string `yaml:"file_path"`
-	} `yaml:"parquet"`
-	Query struct {
-		ParquetTableName  string   `yaml:"parquet_table_name"`
-		PostgresTableName string   `yaml:"postgres_table_name"`
-		JoinColumn        string   `yaml:"join_column"`
-		SelectColumns     []string `yaml:"select_columns"`
-		Query             string   `yaml:"query"`
-	} `yaml:"query"`
+	Sources []DataSource `yaml:"sources"`
+	Query   QueryConfig  `yaml:"query"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {
@@ -41,34 +50,47 @@ func LoadConfig(configPath string) (*Config, error) {
 	return &config, nil
 }
 
-func JoinParquetWithPostgres(ctx context.Context, config *Config) error {
+func JoinDataSources(ctx context.Context, config *Config) error {
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
 		return fmt.Errorf("failed to open DuckDB: %w", err)
 	}
 	defer db.Close()
 
-	// Load the Parquet file into DuckDB
-	_, err = db.Exec(fmt.Sprintf(`CREATE TABLE %s AS SELECT * FROM read_parquet('%s')`, config.Query.ParquetTableName, config.Parquet.FilePath))
-	if err != nil {
-		return fmt.Errorf("failed to create Parquet table: %w", err)
+	for _, source := range config.Sources {
+		switch source.Type {
+		case "parquet":
+			_, err = db.Exec(fmt.Sprintf(`CREATE TABLE %s AS SELECT * FROM read_parquet('%s')`, source.TableName, source.FilePath))
+			if err != nil {
+				return fmt.Errorf("failed to create Parquet table: %w", err)
+			}
+		case "postgres":
+			_, err = db.Exec(`INSTALL postgres; LOAD postgres;`)
+			if err != nil {
+				return fmt.Errorf("failed to install and load PostgreSQL extension: %w", err)
+			}
+
+			attachCmd := fmt.Sprintf(`ATTACH '%s' AS %s (TYPE POSTGRES);`, source.ConnectionString, source.TableName)
+			_, err = db.Exec(attachCmd)
+			if err != nil {
+				return fmt.Errorf("failed to attach PostgreSQL database: %w", err)
+			}
+		}
 	}
 
-	// Enable DuckDB extensions
-	_, err = db.Exec(`INSTALL postgres; LOAD postgres;`)
-	if err != nil {
-		return fmt.Errorf("failed to install and load PostgreSQL extension: %w", err)
+	joinColumns := make([]string, len(config.Query.JoinColumns))
+	for i, col := range config.Query.JoinColumns {
+		joinColumns[i] = fmt.Sprintf("%s.%s", col.Source, col.Column)
 	}
 
-	// Attach the PostgreSQL database
-	attachCmd := fmt.Sprintf(`ATTACH '%s' AS postgres_db (TYPE POSTGRES);`, config.Postgres.ConnectionString)
-	_, err = db.Exec(attachCmd)
-	if err != nil {
-		return fmt.Errorf("failed to attach PostgreSQL database: %w", err)
+	query := config.Query.SQL
+	query = strings.Replace(query, "{select_columns}", strings.Join(config.Query.SelectColumns, ", "), -1)
+	for _, col := range config.Query.JoinColumns {
+		placeholder := fmt.Sprintf("{%s.%s}", col.Source, col.Column)
+		query = strings.Replace(query, placeholder, fmt.Sprintf("%s.%s", col.Source, col.Column), -1)
 	}
 
-	// Execute the query from the config file
-	rows, err := db.Query(config.Query.Query)
+	rows, err := db.Query(query)
 	if err != nil {
 		return fmt.Errorf("failed to execute join query: %w", err)
 	}
